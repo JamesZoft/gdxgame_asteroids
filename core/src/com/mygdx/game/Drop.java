@@ -101,8 +101,7 @@ public class Drop extends ApplicationAdapter {
         settings.pot = false;
 
         TexturePacker.process(settings, "explosionPack", ".", "explosion");
-        TextureAtlas atlas = new TextureAtlas(Gdx.files.internal("explosion.atlas"));
-        Texture explosionTexture = new Texture(Gdx.files.internal("explosion.png"));
+         Texture explosionTexture = new Texture(Gdx.files.internal("explosion.png"));
         final int FRAME_COLS = 9, FRAME_ROWS = 9;
         TextureRegion[][] tmp = TextureRegion.split(explosionTexture,
                 explosionTexture.getWidth() / FRAME_COLS,
@@ -148,23 +147,26 @@ public class Drop extends ApplicationAdapter {
             Map.Entry<Animation<TextureRegion>, Vector2> entry = iterator.next();
             Animation<TextureRegion> explosionAnimation = entry.getKey();
             Vector2 value = entry.getValue();
-            explosionsStateTimeMap.put(explosionAnimation, explosionsStateTimeMap.get(explosionAnimation) + Gdx.graphics.getDeltaTime()); // Accumulate elapsed animation time
+            float stateTime = explosionsStateTimeMap.get(explosionAnimation) != null
+                    ? explosionsStateTimeMap.get(explosionAnimation)
+                    : Gdx.graphics.getDeltaTime();
+            explosionsStateTimeMap.put(explosionAnimation, stateTime + Gdx.graphics.getDeltaTime()); // Accumulate elapsed animation time
+            TextureRegion currentFrame = explosionAnimation.getKeyFrame(explosionsStateTimeMap.get(explosionAnimation), true);
+            batch.draw(currentFrame, value.x, value.y);
             if (explosionAnimation.isAnimationFinished(explosionsStateTimeMap.get(explosionAnimation))) {
                 explosions.remove(explosionAnimation);
                 explosionsStateTimeMap.remove(explosionAnimation);
             }
-            TextureRegion currentFrame = explosionAnimation.getKeyFrame(explosionsStateTimeMap.get(explosionAnimation), true);
-            batch.draw(currentFrame, value.x, value.y);
         }
         batch.end();
 
         if (Gdx.input.isKeyPressed(Input.Keys.UP)) {
             velocity = velocity.clamp(-5, 5);
             var position = new Vector2(shipPolygon.getX(), shipPolygon.getY());
-            var heading = MathUtils.degreesToRadians * shipPolygon.getRotation();
+            var heading = -MathUtils.degreesToRadians * shipPolygon.getRotation();
             var acceleration = new Vector2(
-                    -MathUtils.sin(heading) * 5f,
-                    MathUtils.cos(heading) * 5f
+                    -MathUtils.cos(heading) * 5f,
+                    MathUtils.sin(heading) * 5f
             );
             velocity = velocity.add(acceleration);
 
@@ -246,18 +248,15 @@ public class Drop extends ApplicationAdapter {
     }
 
     private void fireRocket() {
-        Rectangle rocketRect = new Rectangle(
-                shipPolygon.getX() + shipPolygon.getBoundingRectangle().width / 2,
-                shipPolygon.getY() + shipPolygon.getBoundingRectangle().height,
-                16, 16);
-        Polygon rocketPoly = new Polygon(new float[] {
-                rocketRect.x, rocketRect.y,
-                rocketRect.x, rocketRect.y + rocketRect.height,
-                rocketRect.x + rocketRect.width, rocketRect.y + rocketRect.height,
-                rocketRect.x + rocketRect.width, rocketRect.y
+       Polygon rocketPoly = new Polygon(new float[] {
+               -rocketTexture.getWidth()/2, -rocketTexture.getHeight()/2,
+               -rocketTexture.getWidth()/2, rocketTexture.getHeight()/2,
+               rocketTexture.getWidth()/2, rocketTexture.getHeight()/2,
+               rocketTexture.getWidth()/2, -rocketTexture.getHeight()/2
         });
-        rocketPoly.setPosition(rocketRect.x, rocketRect.y);
-        rocketPoly.setRotation(shipPolygon.getRotation());
+        rocketPoly.setPosition(shipPolygon.getX() + shipPolygon.getBoundingRectangle().width / 2,
+                shipPolygon.getY() + shipPolygon.getBoundingRectangle().height);
+        rocketPoly.setRotation(shipPolygon.getRotation() + 90);
         rockets.put(rocketPoly, new Vector2(0, 0));
     }
 
@@ -315,7 +314,7 @@ public class Drop extends ApplicationAdapter {
                     asteroidsExploded.add(asteroid);
                     explosions.put(new Animation<>(0.012346f, frames, Animation.PlayMode.NORMAL),
                         new Vector2(rocket.getX() + rocket.getBoundingRectangle().width/2,
-                                    rocket.getY() + rocket.getBoundingRectangle().height/2));
+                                    rocket.getY() + rocket.getBoundingRectangle().height));
                 });
         });
     }
