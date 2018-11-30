@@ -3,30 +3,49 @@ package com.mygdx.game;
 import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
-import com.badlogic.gdx.audio.Music;
-import com.badlogic.gdx.audio.Sound;
+import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
+import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator;
 import com.badlogic.gdx.math.*;
+import com.badlogic.gdx.scenes.scene2d.Actor;
+import com.badlogic.gdx.scenes.scene2d.Stage;
+import com.badlogic.gdx.scenes.scene2d.ui.Label;
+import com.badlogic.gdx.utils.Align;
 import com.badlogic.gdx.utils.Array;
+import com.badlogic.gdx.utils.viewport.ScreenViewport;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @SuppressWarnings("IntegerDivisionInFloatingPointContext")
 public class Drop extends ApplicationAdapter {
-    private Texture dropImage;
+    private Stage stage;
     private Texture spaceshipImage;
-    private Sound dropSound;
-    private Music rainMusic;
+    private Texture rocketTexture;
+    private Texture asteroidTexture;
     private OrthographicCamera camera;
     private SpriteBatch batch;
     private Polygon shipPolygon;
-    private Vector3 touchPos;
-    private Array<Polygon> asteroids;
-    private long lastDropTime;
+    private Map<Polygon, Vector2> asteroids;
+    private Map<Polygon, Vector2> rockets;
+    private List<Polygon> asteroidsExploded;
+    private List<Polygon> rocketsExploded;
+    private long lastRocketFiredTime = 0;
+    private long lastAsteroidSpawnedTime = 0;
+    private Vector2 velocity = new Vector2(0, 0);
     private static final int screenWidth = 1600;
     private static final int screenHeight = 960;
+    private GameState state;
+    private int score;
+    private Label scoreText;
 
     public static int getScreenWidth() {
         return screenWidth;
@@ -38,12 +57,12 @@ public class Drop extends ApplicationAdapter {
 
     @Override
     public void create() {
+        state = GameState.RUNNING;
         // load the images for the droplet and the shipPolygon, 64x64 pixels each
+        stage = new Stage(new ScreenViewport());
         camera = new OrthographicCamera();
         camera.setToOrtho(false, screenWidth, screenHeight);
-        dropImage = new Texture(Gdx.files.internal("droplet.png"));
         spaceshipImage = new Texture(Gdx.files.internal("SpaceShip.png"));
-
         batch = new SpriteBatch();
         Rectangle shipRect = new Rectangle();
         shipRect.x = screenWidth / 2 - 64 / 2;
@@ -57,129 +76,251 @@ public class Drop extends ApplicationAdapter {
             shipRect.x + shipRect.width, shipRect.y     
         });
         shipPolygon.setPosition(shipRect.x, shipRect.y);
-        touchPos = new Vector3();
-        asteroids = new Array<>();
 
-        // load the drop sound effect and the rain background "music"
-//        dropSound = Gdx.audio.newSound(Gdx.files.internal("drop.wav"));
-//        rainMusic = Gdx.audio.newMusic(Gdx.files.internal("rain.mp3"));
+        rocketTexture = new Texture("rocket.png");
+        asteroidTexture = new Texture("asteroid.png");
+        asteroids = new HashMap<>();
+        rockets = new HashMap<>();
+        asteroidsExploded = new ArrayList<>();
+        rocketsExploded = new ArrayList<>();
 
-        // start the playback of the background music immediately
-//        rainMusic.setLooping(true);
-//        rainMusic.play();
+        Label.LabelStyle label1Style = new Label.LabelStyle();
+        label1Style.font = new BitmapFont(Gdx.files.internal("Amble-Regular-26.fnt"));
+        label1Style.fontColor = Color.RED;
+
+        scoreText = new Label("Score: 0",label1Style);
+        int row_height = Gdx.graphics.getWidth() / 12;
+        scoreText.setSize(Gdx.graphics.getWidth(),row_height);
+//        scoreText.setPosition(0,Gdx.graphics.getHeight()-row_height*2);
+        scoreText.setAlignment(Align.top);
+        stage.addActor(scoreText);
+
+        createAsteroid();
     }
 
     @Override
     public void render() {
+        if (state.equals(GameState.NOT_RUNNING)) {
+            return;
+        }
         Gdx.gl.glClearColor(0, 0, 0.2f, 1);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
-
+        scoreText.setText("Score: " + score);
         camera.update();
         batch.setProjectionMatrix(camera.combined);
-        batch.begin();
-        TextureRegion region = new TextureRegion(spaceshipImage);
-//        ShapeRenderer renderer = new ShapeRenderer();
-//        renderer.begin(ShapeRenderer.ShapeType.Line);
-//        renderer.polygon(shipPolygon.getTransformedVertices());
-//        renderer.end();
-        Affine2 affine2 = new Affine2();
-        affine2.rotate(shipPolygon.getRotation());
 
-//        float x = shipPolygon.getX(), y = shipPolygon.getY(),
-//                cx = shipPolygon.getBoundingRectangle().width * .5f, cy = shipPolygon.getBoundingRectangle().height * .5f;
-//        shipPolygon.translate(-(x + cx), -(y + cy));
-        batch.draw(region.getTexture(), shipPolygon.getX(), shipPolygon.getY(),
-                shipPolygon.getBoundingRectangle().width / 2, shipPolygon.getBoundingRectangle().height / 2,
-                64f, 64f,
-                shipPolygon.getScaleX(), shipPolygon.getScaleY(),
-                shipPolygon.getRotation(),
-                region.getRegionX(), region.getRegionY(),
-                region.getRegionWidth(), region.getRegionHeight(),
+        batch.begin();
+        drawObject(spaceshipImage, shipPolygon, 64, 64);
+        rockets.forEach((rocket, velocity) -> drawObject(rocketTexture, rocket, 16, 16));
+        asteroids.forEach((asteroid, velocity) -> {
+            TextureRegion region1 = new TextureRegion(asteroidTexture);
+            batch.draw(region1.getTexture(), asteroid.getX(), asteroid.getY(),
+                0, 0,
+                64, 64,
+                asteroid.getScaleX(), asteroid.getScaleY(),
+                asteroid.getRotation(),
+                region1.getRegionX(), region1.getRegionY(),
+                region1.getRegionWidth(), region1.getRegionHeight(),
                 false, false);
-//        for(Rectangle raindrop: asteroids) {
-//            batch.draw(dropImage, raindrop.x, raindrop.y);
-//        }
+        });
+
         batch.end();
 
+        if (Gdx.input.isKeyPressed(Input.Keys.UP)) {
+            velocity = velocity.clamp(-5, 5);
+            var position = new Vector2(shipPolygon.getX(), shipPolygon.getY());
+            var heading = MathUtils.degreesToRadians * shipPolygon.getRotation();
+            var acceleration = new Vector2(
+                    -MathUtils.sin(heading) * 5f,
+                    MathUtils.cos(heading) * 5f
+            );
+            velocity = velocity.add(acceleration);
+
+            velocity = velocity.clamp(-5, 5);
+            var newPos = position.add(velocity);
+            shipPolygon.setPosition(newPos.x, newPos.y);
+        }
         if(Gdx.input.isKeyPressed(Input.Keys.LEFT)) {
-//            shipPolygon.setOrigin(screenWidth/2, screenHeight/2);
-//            shipPolygon.rotate(-(Gdx.graphics.getDeltaTime() / 10));
             int theta = 5;
-//            int modifiedRotation = theta
             shipPolygon.rotate(theta);
-            setScaling(theta);
 
-//            shipPolygon.setScale();
-
-//            float x = shipPolygon.getX()*MathUtils.cos(theta) - shipPolygon.getY()*MathUtils.sin(theta);
-//            float y = shipPolygon.getX()*MathUtils.sin(theta) + shipPolygon.getY()*MathUtils.cos(theta);
-//            //This will give you the location of a point rotated θ degrees around the origin. Since the corners of the
-//            // square are rotated around the center of the square and not the origin, a couple of steps need to be added
-//            // to be able to use this formula. First you need to set the point relative to the origin. Then you can use
-//            // the rotation formula. After the rotation you need to move it back relative to the center of the square.
-//
-//            // cx, cy - center of square coordinates
-//            // x, y - coordinates of a corner point of the square
-//            // theta is the angle of rotation
-//
-//            float cx = shipPolygon.getX() + shipPolygon.getBoundingRectangle().width / 2;
-//            float cy = shipPolygon.getY() + shipPolygon.getBoundingRectangle().height / 2;
-//            // translate point to origin
-//            float tempX = x - cx;
-//            float tempY = y - cy;
-//
-//            // now apply rotation
-//            float rotatedX = tempX* MathUtils.cos(theta) - tempY*MathUtils.sin(theta);
-//            float rotatedY = tempX*MathUtils.sin(theta) + tempY*MathUtils.cos(theta);
-//
-//            // translate back
-//            x = rotatedX + cx;
-//            y = rotatedY + cy;
-//            shipPolygon.setPosition(x, y);
         }
-//            shipPolygon.x -= 200 * Gdx.graphics.getDeltaTime();
         if(Gdx.input.isKeyPressed(Input.Keys.RIGHT)) {
-//            shipPolygon.rotate(Gdx.graphics.getDeltaTime() / 10);
             int theta = -5;
-//            int modifiedRotation = theta
             shipPolygon.rotate(theta);
-            setScaling(theta);
         }
-//        shipPolygon.setVertices();
-        shipPolygon.getBoundingRectangle().setHeight(64f);
-        shipPolygon.getBoundingRectangle().setWidth(64f);
-//            shipPolygon.x += 200 * Gdx.graphics.getDeltaTime();
+        if(Gdx.input.isKeyPressed(Input.Keys.SPACE)) {
+            if (System.currentTimeMillis() - lastRocketFiredTime > 200) {
+                fireRocket();
+                lastRocketFiredTime = System.currentTimeMillis();
+            }
+        }
 
-//        if(shipPolygon.x < 0)å
-//            shipPolygon.x = 0;
-//        if(shipPolygon.x > screenWidth - 64)
-//            shipPolygon.x = screenWidth - 64;
+        moveRockets();
+        moveAsteroids();
+        checkRocketAsteroidCollisions();
+        dealWithRocketAsteroidCollisions();
+        createAsteroid();
 
-//        for (Iterator<Rectangle> iter = asteroids.iterator(); iter.hasNext(); ) {
-//            Rectangle raindrop = iter.next();
-//            raindrop.y -= 200 * Gdx.graphics.getDeltaTime();
-//            if(raindrop.y + 64 < 0)
-//                iter.remove();
-//            if(raindrop.overlaps(shipPolygon)) {
-////                dropSound.play();
-//                iter.remove();
-//            }
-//        }
+        if (isShipCollidedWith()) {
+            Label.LabelStyle label1Style = new Label.LabelStyle();
+            label1Style.font = new BitmapFont(Gdx.files.internal("Amble-Regular-26.fnt"));
+            label1Style.fontColor = Color.RED;
+
+            Label label1 = new Label("You lost!",label1Style);
+            int row_height = Gdx.graphics.getWidth() / 12;
+            label1.setSize(Gdx.graphics.getWidth(),row_height);
+            label1.setPosition(0,Gdx.graphics.getHeight()-row_height*2);
+            label1.setAlignment(Align.center);
+            stage.addActor(label1);
+            stage.act();
+            stage.draw();
+            pause();
+        }
+
+        stage.act();
+        stage.draw();
     }
 
-    private void setScaling(int theta) {
-//        shipPolygon.set
-//        int n = Math.abs(theta) % 90;
-//        int distanceFrom45Intervals = Math.min(n, 90 - n);
-//        shipPolygon.setScale(1 + distanceFrom45Intervals / 10f, 1 + distanceFrom45Intervals / 10f);
+    private void drawObject(Texture texture, Polygon polygon, int width, int height) {
+        TextureRegion region1 = new TextureRegion(texture);
+        batch.draw(region1.getTexture(), polygon.getX(), polygon.getY(),
+                width / 2, height / 2,
+                width, height,
+                polygon.getScaleX(), polygon.getScaleY(),
+                polygon.getRotation(),
+                region1.getRegionX(), region1.getRegionY(),
+                region1.getRegionWidth(), region1.getRegionHeight(),
+                false, false);
+    }
+
+    private void createAsteroid() {
+        if (System.currentTimeMillis() - lastAsteroidSpawnedTime < 5000) {
+            return;
+        }
+        Rectangle asteroidRect = new Rectangle(
+                MathUtils.random(200, screenWidth - 200), MathUtils.random(200, screenHeight - 200),
+                64, 64);
+        Polygon asteroidPoly = new Polygon(new float[] {
+                asteroidRect.x, asteroidRect.y,
+                asteroidRect.x, asteroidRect.y + asteroidRect.height,
+                asteroidRect.x + asteroidRect.width, asteroidRect.y + asteroidRect.height,
+                asteroidRect.x + asteroidRect.width, asteroidRect.y
+        });
+        asteroidPoly.setPosition(asteroidRect.x, asteroidRect.y);
+        asteroidPoly.setRotation(MathUtils.random(0, 360));
+        asteroids.put(asteroidPoly, new Vector2(1, 1));
+        lastAsteroidSpawnedTime = System.currentTimeMillis();
+    }
+
+    private void fireRocket() {
+        Rectangle rocketRect = new Rectangle(
+                shipPolygon.getX() + shipPolygon.getBoundingRectangle().width / 2,
+                shipPolygon.getY() + shipPolygon.getBoundingRectangle().height,
+                16, 16);
+        Polygon rocketPoly = new Polygon(new float[] {
+                rocketRect.x, rocketRect.y,
+                rocketRect.x, rocketRect.y + rocketRect.height,
+                rocketRect.x + rocketRect.width, rocketRect.y + rocketRect.height,
+                rocketRect.x + rocketRect.width, rocketRect.y
+        });
+        rocketPoly.setPosition(rocketRect.x, rocketRect.y);
+        rocketPoly.setRotation(shipPolygon.getRotation());
+        rockets.put(rocketPoly, new Vector2(0, 0));
+    }
+
+    private void moveRockets() {
+        rockets = rockets.entrySet()
+                .stream()
+                .filter(e -> !isOutOfBounds(e.getKey()))
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        for (var e : rockets.entrySet()) {
+            var rocket = e.getKey();
+            var position = new Vector2(rocket.getX(), rocket.getY());
+            var heading = MathUtils.degreesToRadians * rocket.getRotation();
+            var acceleration = new Vector2(-MathUtils.sin(heading) * 1f, MathUtils.cos(heading) * 1f);
+
+            Vector2 velocity = rockets.get(rocket).add(acceleration);
+
+            velocity = velocity.clamp(-10, 10);
+            rockets.put(rocket, velocity);
+            var newPos = position.add(velocity);
+            rocket.setPosition(newPos.x, newPos.y);
+
+        }
+    }
+
+    private void moveAsteroids() {
+        asteroids = asteroids.entrySet()
+                .stream()
+                .filter(e -> !isOutOfBounds(e.getKey()))
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        for (var e : asteroids.entrySet()) {
+            var asteroid = e.getKey();
+            var position = new Vector2(asteroid.getX(), asteroid.getY());
+
+            var newPos = position.add(e.getValue());
+            asteroid.setPosition(newPos.x, newPos.y);
+
+        }
+    }
+
+    private boolean isShipCollidedWith() {
+        return asteroids.entrySet()
+                .stream()
+                .anyMatch(entry -> arePolygonsIntersecting(shipPolygon, entry.getKey()));
+    }
+
+    private void checkRocketAsteroidCollisions() {
+        asteroids.forEach((asteroid, velocity) -> {
+            rockets.entrySet()
+                .stream()
+                .filter(entry -> arePolygonsIntersecting(asteroid, entry.getKey()))
+                .findAny()
+                .ifPresent(entry -> {
+                    rocketsExploded.add(entry.getKey());
+                    asteroidsExploded.add(asteroid);
+                });
+        });
+    }
+
+    private boolean arePolygonsIntersecting(Polygon a, Polygon b) {
+        return a.getX() < b.getX() + b.getBoundingRectangle().width
+                && a.getX() + a.getBoundingRectangle().width > b.getX()
+                && a.getY() < b.getY() + b.getBoundingRectangle().height
+                && a.getY() + a.getBoundingRectangle().height > b.getY();
+    }
+
+    private void dealWithRocketAsteroidCollisions() {
+        rocketsExploded.forEach(rockets::remove);
+        rocketsExploded.clear();
+        asteroidsExploded.stream()
+            .map(asteroids::remove)
+            .forEach(asteroid -> score++);
+        asteroidsExploded.clear();
+    }
+
+    private boolean isOutOfBounds(Polygon p) {
+        return p.getX() > screenWidth || p.getX() < 0
+            || p.getY() > screenHeight || p.getY() < 0;
+    }
+
+    @Override
+    public void resume() {
+        state = GameState.RUNNING;
+    }
+
+    @Override
+    public void pause() {
+        state = GameState.NOT_RUNNING;
     }
 
     @Override
     public void dispose() {
-        dropImage.dispose();
+        stage.dispose();
+        asteroidTexture.dispose();
+        rocketTexture.dispose();
         spaceshipImage.dispose();
-//        dropSound.dispose();
-//        rainMusic.dispose();
         batch.dispose();
     }
 }
