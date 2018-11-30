@@ -7,22 +7,18 @@ import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.Texture;
-import com.badlogic.gdx.graphics.g2d.BitmapFont;
-import com.badlogic.gdx.graphics.g2d.SpriteBatch;
-import com.badlogic.gdx.graphics.g2d.TextureRegion;
+import com.badlogic.gdx.graphics.g2d.*;
 import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator;
 import com.badlogic.gdx.math.*;
 import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.Stage;
 import com.badlogic.gdx.scenes.scene2d.ui.Label;
+import com.badlogic.gdx.tools.texturepacker.TexturePacker;
 import com.badlogic.gdx.utils.Align;
 import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.viewport.ScreenViewport;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @SuppressWarnings("IntegerDivisionInFloatingPointContext")
@@ -46,6 +42,10 @@ public class Drop extends ApplicationAdapter {
     private GameState state;
     private int score;
     private Label scoreText;
+    private Map<Animation<TextureRegion>, Vector2> explosions;
+    private Map<Animation<TextureRegion>, Float> explosionsStateTimeMap;
+    private Array<TextureRegion> frames;
+    private float stateTime;
 
     public static int getScreenWidth() {
         return screenWidth;
@@ -95,6 +95,27 @@ public class Drop extends ApplicationAdapter {
         scoreText.setAlignment(Align.top);
         stage.addActor(scoreText);
 
+        TexturePacker.Settings settings = new TexturePacker.Settings();
+        settings.maxWidth = 904;
+        settings.maxHeight = 904;
+        settings.pot = false;
+
+        TexturePacker.process(settings, "explosionPack", ".", "explosion");
+        TextureAtlas atlas = new TextureAtlas(Gdx.files.internal("explosion.atlas"));
+        Texture explosionTexture = new Texture(Gdx.files.internal("explosion.png"));
+        final int FRAME_COLS = 9, FRAME_ROWS = 9;
+        TextureRegion[][] tmp = TextureRegion.split(explosionTexture,
+                explosionTexture.getWidth() / FRAME_COLS,
+                explosionTexture.getHeight() / FRAME_ROWS);
+        frames = new Array<>(FRAME_COLS * FRAME_ROWS);
+        for (int i = 0; i < FRAME_ROWS; i++) {
+            for (int j = 0; j < FRAME_COLS; j++) {
+                frames.add(tmp[i][j]);
+            }
+        }
+        explosions = new HashMap<>();
+        explosionsStateTimeMap = new HashMap<>();
+
         createAsteroid();
     }
 
@@ -123,7 +144,18 @@ public class Drop extends ApplicationAdapter {
                 region1.getRegionWidth(), region1.getRegionHeight(),
                 false, false);
         });
-
+        for (Iterator<Map.Entry<Animation<TextureRegion>, Vector2>> iterator = explosions.entrySet().iterator(); iterator.hasNext(); ) {
+            Map.Entry<Animation<TextureRegion>, Vector2> entry = iterator.next();
+            Animation<TextureRegion> explosionAnimation = entry.getKey();
+            Vector2 value = entry.getValue();
+            explosionsStateTimeMap.put(explosionAnimation, explosionsStateTimeMap.get(explosionAnimation) + Gdx.graphics.getDeltaTime()); // Accumulate elapsed animation time
+            if (explosionAnimation.isAnimationFinished(explosionsStateTimeMap.get(explosionAnimation))) {
+                explosions.remove(explosionAnimation);
+                explosionsStateTimeMap.remove(explosionAnimation);
+            }
+            TextureRegion currentFrame = explosionAnimation.getKeyFrame(explosionsStateTimeMap.get(explosionAnimation), true);
+            batch.draw(currentFrame, value.x, value.y);
+        }
         batch.end();
 
         if (Gdx.input.isKeyPressed(Input.Keys.UP)) {
@@ -278,8 +310,12 @@ public class Drop extends ApplicationAdapter {
                 .filter(entry -> arePolygonsIntersecting(asteroid, entry.getKey()))
                 .findAny()
                 .ifPresent(entry -> {
-                    rocketsExploded.add(entry.getKey());
+                    var rocket = entry.getKey();
+                    rocketsExploded.add(rocket);
                     asteroidsExploded.add(asteroid);
+                    explosions.put(new Animation<>(0.012346f, frames, Animation.PlayMode.NORMAL),
+                        new Vector2(rocket.getX() + rocket.getBoundingRectangle().width/2,
+                                    rocket.getY() + rocket.getBoundingRectangle().height/2));
                 });
         });
     }

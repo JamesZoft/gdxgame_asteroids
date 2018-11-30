@@ -1,0 +1,13 @@
+
+explosion.png
+size: 904,904
+format: RGBA8888
+filter: Nearest,Nearest
+repeat: none
+explosion
+  rotate: false
+  xy: 2, 2
+  size: 900, 900
+  orig: 900, 900
+  offset: 0, 0
+  index: -1
