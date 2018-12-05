@@ -3,6 +3,7 @@ package com.mygdx.game;
 import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
+import com.badlogic.gdx.audio.Sound;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
@@ -25,6 +26,8 @@ import java.util.stream.Collectors;
 public class Drop extends ApplicationAdapter {
     private Stage stage;
     private Texture spaceshipImage;
+    private Sound laserSound;
+    private Sound asteroidDeathSound;
     private Texture rocketTexture;
     private Texture asteroidTexture;
     private OrthographicCamera camera;
@@ -114,6 +117,8 @@ public class Drop extends ApplicationAdapter {
         }
         explosions = new HashMap<>();
         explosionsStateTimeMap = new HashMap<>();
+        laserSound = Gdx.audio.newSound(Gdx.files.internal("laserblast.mp3"));
+        asteroidDeathSound = Gdx.audio.newSound(Gdx.files.internal("asteroid_kill.mp3"));
 
         createAsteroid();
     }
@@ -258,6 +263,7 @@ public class Drop extends ApplicationAdapter {
                 shipPolygon.getY() + shipPolygon.getBoundingRectangle().height);
         rocketPoly.setRotation(shipPolygon.getRotation() + 90);
         rockets.put(rocketPoly, new Vector2(0, 0));
+        laserSound.play(0.05f);
     }
 
     private void moveRockets() {
@@ -315,6 +321,7 @@ public class Drop extends ApplicationAdapter {
                     explosions.put(new Animation<>(0.012346f, frames, Animation.PlayMode.NORMAL),
                         new Vector2(rocket.getX() + rocket.getBoundingRectangle().width/2,
                                     rocket.getY() + rocket.getBoundingRectangle().height));
+                    asteroidDeathSound.play(0.2f);
                 });
         });
     }
