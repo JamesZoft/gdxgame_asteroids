@@ -2,7 +2,7 @@ A simple asteroids-like game using LibGDX. All art is free, open source licensed
 
 To run (windows):
 
-git clone https://github.com/Jarob22/gdxgame_asteroids.git
+git clone this repo
 
 cd gdxgame_asteroids
 
